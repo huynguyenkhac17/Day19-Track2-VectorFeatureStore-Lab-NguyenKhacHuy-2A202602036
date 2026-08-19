@@ -37,7 +37,12 @@ proc = subprocess.Popen(
 
 # Đợi server up + warm (Searcher.from_corpus loads embeddings + indexes 1000 docs)
 URL = "http://localhost:8000"
-for _ in range(60):
+# 300 attempts, not 60: startup cost is dominated by embedding the 1000-doc
+# corpus, which is CPU-bound and takes ~3 minutes on a machine where a single
+# forward pass costs ~50 ms. With 60 attempts the loop gives up while the
+# server is still indexing -- and whether it does depends on how fast the OS
+# refuses the connection, which is why it fails only sometimes.
+for _ in range(300):
     try:
         r = httpx.get(f"{URL}/healthz", timeout=2.0)
         if r.status_code == 200 and r.json().get("ready"):

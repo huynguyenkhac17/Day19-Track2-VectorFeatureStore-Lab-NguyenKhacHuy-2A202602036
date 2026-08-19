@@ -183,19 +183,45 @@ else:
 
 # %%
 import pandas as pd
+
+PIT_FEATURES = [
+    "user_profile_features:reading_speed_wpm",
+    "user_profile_features:topic_affinity",
+]
+
+# `make_user_profile` stamps user u_00i at NOW - i hours, so an event row must
+# sit at or after its own user's stamp for a value to exist yet. u_001 is
+# stamped NOW-1h: asking at NOW-2h is asking before the feature was ever
+# written, and Feast drops that row rather than inventing a value. That is the
+# PIT contract working -- but it means the naive (-2h, -1h, 0h) entity_df can
+# only ever return 2 of 3 rows. Ask inside each user's valid window instead,
+# then demonstrate the refusal explicitly in the next cell.
 entity_df = pd.DataFrame({
     "user_id": ["u_001", "u_002", "u_003"],
-    "event_timestamp": [NOW - timedelta(hours=2), NOW - timedelta(hours=1), NOW],
+    "event_timestamp": [NOW - timedelta(minutes=30), NOW - timedelta(hours=1), NOW],
 })
 
 historical = fs.get_historical_features(
-    entity_df=entity_df,
-    features=[
-        "user_profile_features:reading_speed_wpm",
-        "user_profile_features:topic_affinity",
-    ],
+    entity_df=entity_df, features=PIT_FEATURES,
 ).to_df()
+print(f"PIT join → {len(historical)} rows × {historical.shape[1]} columns")
 print(historical)
+
+# %% [markdown]
+# ### PIT từ chối giá trị tương lai — chứng minh trực tiếp
+#
+# Cùng một `user_id`, chỉ đổi thời điểm sự kiện sang **trước** lúc feature được
+# ghi. Một `GROUP BY user_id + MAX(timestamp)` sẽ vui vẻ trả về giá trị của
+# tương lai; PIT join thì không có gì để trả về — và đó chính là điều bạn muốn.
+
+# %%
+too_early = pd.DataFrame({
+    "user_id": ["u_001"],
+    "event_timestamp": [NOW - timedelta(hours=6)],   # trước stamp NOW-1h của u_001
+})
+early_df = fs.get_historical_features(entity_df=too_early, features=PIT_FEATURES).to_df()
+print(f"hỏi tại NOW-6h  → {len(early_df)} row (feature chưa tồn tại tại thời điểm đó)")
+print(f"hỏi tại NOW-30m → {len(historical[historical.user_id == 'u_001'])} row cho cùng u_001")
 
 # %% [markdown]
 # ## Deliverable evidence
