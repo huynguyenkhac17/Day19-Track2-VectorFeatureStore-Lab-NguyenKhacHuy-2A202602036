@@ -44,6 +44,9 @@ benchmark: ## [both] Precision@10 (keyword/semantic/hybrid) + P99 latency table
 test: ## [both] Run pytest (app + scripts)
 	@$(PYTEST) -q
 
+fix-model: ## [lite] Convert the cached fp16 ONNX model to fp32 (~20x faster on CPU)
+	@$(PY) scripts/fix_fp16_model.py
+
 gen-advanced: ## [both] Generate data for the advanced missions (NB6 + NB8)
 	@$(PY) scripts/gen_agent_queries.py
 	@$(PY) scripts/gen_spend.py
@@ -93,6 +96,6 @@ docker-down: ## [docker] Stop services (data persists)
 docker-clean: ## [docker] Stop AND wipe Qdrant + Redis + Postgres volumes
 	docker compose down -v
 
-.PHONY: help setup-lite verify-lite seed gen-advanced notebooks api lab benchmark test clean-lite \
+.PHONY: help setup-lite verify-lite seed fix-model gen-advanced notebooks api lab benchmark test clean-lite \
         setup-docker verify-docker docker-up docker-down docker-clean \
         runtime-check container-up container-down

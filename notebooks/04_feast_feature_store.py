@@ -95,6 +95,14 @@ if res.stderr:
     print(res.stderr)
 assert res.returncode == 0, f"feast apply failed: {res.stderr}"
 
+# The registry is the deliverable, not the apply log: list what is actually
+# registered. Re-running `feast apply` on an existing registry prints "Updated
+# feature view" rather than "Created", so the log alone is not evidence.
+listed = subprocess.run(["feast", "feature-views", "list"], cwd=str(FEAST_DIR),
+                        capture_output=True, text=True, check=False)
+print(listed.stdout)
+assert listed.stdout.count("_features") >= 3, "expected 3 registered feature views"
+
 # %% [markdown]
 # ## 3. `feast materialize-incremental` — load offline → online
 #

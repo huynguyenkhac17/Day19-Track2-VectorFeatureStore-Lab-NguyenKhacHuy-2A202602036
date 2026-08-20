@@ -1,9 +1,8 @@
 # Reflection — Lab 19
 
 **Tên:** Nguyễn Khắc Huy
-**MSSV:** 2A202602036
-**Cohort:** A20
-**Path đã chạy:** lite (Python 3.11.9, Windows 11, i7-13700HX)
+**Cohort:** A20 — 2A202602036
+**Path đã chạy:** lite
 
 ---
 
@@ -13,47 +12,41 @@
 > `paraphrase` / `mixed`), và tại sao? Khi nào bạn **không** dùng hybrid
 > (i.e. khi nào pure BM25 hoặc pure vector là lựa chọn đúng)?
 
-Đo được (Precision@10): trung bình kw 77,8% · sem 73,2% · **hyb 78,6%**.
-Theo lát cắt — `exact`: kw 96,7% = hyb 96,7% > sem 88,7%; `paraphrase`: kw
-33,3% > hyb 32,0% > sem 24,0%; `mixed`: **hyb 100%** > sem 98,5% > kw 97,0%.
+Precision@10 đo được: `exact` (n=15) BM25 96,7% = hybrid 96,7%, vector 88,7%.
+`paraphrase` (n=15) BM25 33,3% > hybrid 32,0% > vector 24,0%. `mixed` (n=20)
+hybrid 100% > vector 98,5% > BM25 97,0%. Trung bình hybrid 78,6% > BM25 77,8% >
+vector 73,2%.
 
-`exact` chứa thuật ngữ nguyên văn nên BM25 đã đủ, hybrid chỉ hoà. `mixed` có
-cả từ khoá lẫn ý diễn đạt lại — mỗi retriever bù đúng chỗ kia hụt, nên hybrid
-thắng và kéo luôn trung bình.
+Hybrid chỉ **thực sự** thắng ở `mixed` — loại query vừa có thuật ngữ nguyên văn
+vừa có ý diễn đạt lại, nên hai retriever bù lỗi cho nhau. Ở `exact`, BM25 đã
+bão hoà; hybrid không thêm gì.
 
-Bất ngờ nhất: `paraphrase` **vector thua cả BM25**. Đây không phải lỗi RRF mà
-là lỗi chọn model: `bge-small-en-v1.5` được huấn luyện tiếng Anh, câu hỏi
-tiếng Việt diễn đạt lại nằm ngoài phân phối của nó. Hybrid kế thừa luôn phần
-yếu đó.
+Điều bất ngờ là `paraphrase`: hybrid **thấp hơn** BM25. Lý do là
+`bge-small-en-v1.5` được huấn luyện cho tiếng Anh, nên trên câu tiếng Việt diễn
+đạt lại nó chỉ đạt 24% — RRF trộn một retriever yếu vào thì kéo kết quả xuống,
+chứ fusion không tự biết retriever nào đáng tin.
 
-Không dùng hybrid khi: (1) ngân sách độ trễ chặt — đo được keyword P99 2,9 ms
-so với hybrid 83,5 ms, toàn bộ chênh lệch là một lần forward pass embedding;
-(2) query là mã định danh (SKU, mã lỗi, tên hàm) — BM25 thuần đúng hơn;
-(3) embedding model lệch ngôn ngữ/miền như trên — thêm vector chỉ thêm nhiễu.
+Nên **không** dùng hybrid khi: (1) query là mã/định danh chính xác — BM25 đủ và
+rẻ hơn 5× (P99 3,3 ms so với 16,1 ms); (2) embedding model không phủ ngôn ngữ
+của corpus — phải đổi model (bge-m3) trước, chứ không phải thêm fusion.
+
+_(179 chữ)_
 
 ---
 
 ## Điều ngạc nhiên nhất khi làm lab này
 
-Rằng "cải thiện chất lượng" và "vượt ngưỡng rubric" là hai chuyện tách rời:
-hybrid thắng về Precision@10 nhưng **không thể** đạt P99 < 50 ms trên máy này,
-vì riêng một lần forward pass của `bge-small` đã tốn ~57 ms — nút thắt nằm ở
-model, không nằm ở đường truy xuất (keyword P99 chỉ 2,9 ms trên cùng phép đo).
-Muốn cả hai thì phải cache embedding của query hoặc đổi runtime, chứ tối ưu RRF
-không cứu được.
-
-Hai con số latency trong bài **không** khớp nhau và đó là chuyện có thật đáng
-ghi lại: `make benchmark` đo in-process cho hybrid P99 = 83,5 ms, còn NB3 đo
-qua HTTP cho 535 ms. Chênh lệch đến từ (a) mỗi request là một kết nối TCP mới
-— P99 wall-clock lên tới ~3 s ngay cả với keyword vốn chỉ tốn 3,5 ms
-server-side, và (b) endpoint đồng bộ của FastAPI chạy trên threadpool: đo được
-rằng gọi ONNX lặp lại từ một worker thread cố định tốn 60–320 ms tuỳ lần, so
-với 57–76 ms khi gọi từ main thread. Bài học: **P99 phụ thuộc chỗ bạn đặt
-đồng hồ**, và một con số latency không kèm mô tả đường đo thì vô nghĩa.
+Nút thắt latency không nằm trong code lab mà trong **file model**: fastembed
+≥ 0.8 phát hành `bge-small-en-v1.5` dạng float16, mà CPU provider của ONNX
+Runtime không có kernel fp16 nên cast lại 33M trọng số ở *mỗi* lần embed —
+~30 ms cố định/lời gọi. Convert sang fp32 một lần (`make fix-model`):
+62 ms → 3,1 ms mỗi query, index corpus 179 s → 15,5 s, hybrid P99 116 ms →
+14,6 ms, còn Precision@10 **không đổi một chữ số nào**. Bài học: trước khi
+tinh chỉnh thuật toán, hãy đo xem thời gian thực sự đi đâu.
 
 ---
 
 ## Bonus challenge
 
-- [x] Đã làm bonus (xem `bonus/` — `ARCHITECTURE.md`, `agent.py`, `demo.py`)
+- [x] Đã làm bonus (xem `bonus/`)
 - [ ] Pair work với: _(làm một mình)_

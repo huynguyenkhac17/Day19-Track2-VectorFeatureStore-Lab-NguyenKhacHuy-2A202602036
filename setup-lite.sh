@@ -72,6 +72,13 @@ python scripts/gen_spend.py
 # ── 7. Smoke test ───────────────────────────────────────────────────────
 python scripts/verify_lite.py
 
+# ── 8. fp16 -> fp32 model fix ───────────────────────────────────────────
+# Must run AFTER something has embedded text, so the model is in the cache.
+# Without this the lab still works, just ~20x slower per embedding, and the
+# 50 ms P99 target in NB3 is unreachable. See scripts/fix_fp16_model.py.
+echo "  · checking the cached ONNX model precision…"
+python scripts/fix_fp16_model.py
+
 cat <<EOF
 
 [lite] Done. Activate the venv and start working:

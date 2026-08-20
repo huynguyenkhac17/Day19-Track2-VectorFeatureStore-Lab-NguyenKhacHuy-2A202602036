@@ -36,7 +36,14 @@ proc = subprocess.Popen(
 )
 
 # Đợi server up + warm (Searcher.from_corpus loads embeddings + indexes 1000 docs)
-URL = "http://localhost:8000"
+# 127.0.0.1, not "localhost": on Windows the name resolves to ::1 first and the
+# IPv4 fallback only happens after a connect timeout, adding ~2.3 s to EVERY
+# request. That never touches `latency_ms` (measured inside the handler) but it
+# does swamp the wall-clock column and made this notebook take 12 minutes.
+URL = "http://127.0.0.1:8000"
+# One pooled client for the whole notebook: `httpx.get` opens and tears down a
+# TCP connection per call, which is connection-setup cost, not search cost.
+client = httpx.Client(base_url=URL, timeout=10.0)
 # 300 attempts, not 60: startup cost is dominated by embedding the 1000-doc
 # corpus, which is CPU-bound and takes ~3 minutes on a machine where a single
 # forward pass costs ~50 ms. With 60 attempts the loop gives up while the
@@ -44,7 +51,7 @@ URL = "http://localhost:8000"
 # refuses the connection, which is why it fails only sometimes.
 for _ in range(300):
     try:
-        r = httpx.get(f"{URL}/healthz", timeout=2.0)
+        r = httpx.get(f"{URL}/healthz", timeout=2.0)   # pre-pool: server may not be up
         if r.status_code == 200 and r.json().get("ready"):
             break
     except httpx.HTTPError:
@@ -53,13 +60,13 @@ for _ in range(300):
 else:
     raise RuntimeError("API didn't become ready within 60s")
 
-print(httpx.get(f"{URL}/healthz").json())
+print(client.get("/healthz").json())
 
 # %% [markdown]
 # ## 2. Single query — kiểm tra response shape
 
 # %%
-r = httpx.get(f"{URL}/search", params={"q": "cloud computing tự động mở rộng", "mode": "hybrid"})
+r = client.get("/search", params={"q": "cloud computing tự động mở rộng", "mode": "hybrid"})
 r.raise_for_status()
 body = r.json()
 print(f"latency_ms: {body['latency_ms']:.1f}")
@@ -90,13 +97,30 @@ def percentile(values: list[float], p: float) -> float:
     return sorted(values)[min(int(n * p), n - 1)]
 
 
-def benchmark_mode(mode: str, reps: int = 2) -> dict[str, float]:
+WARMUP = 20   # the rubric threshold is explicitly "after warm-up"
+
+
+def benchmark_mode(mode: str, reps: int = 10) -> dict[str, float]:
+    """Warm up, then time `reps` passes over the golden set.
+
+    Two measurement decisions worth understanding before trusting the numbers:
+
+    * **Warm-up.** The first calls of a mode pay ONNX arena allocation and page
+      faults on the freshly-loaded weights. Those are startup costs, not
+      steady-state serving costs, and the rubric asks for the warm figure.
+    * **Sample count.** With reps=2 there are 100 samples, so "P99" is
+      literally `max()` -- one unlucky OS scheduling hiccup defines it. reps=10
+      gives 500 samples, where the 99th percentile is an actual tail statistic.
+    """
+    for q in golden[:WARMUP]:
+        client.get("/search", params={"q": q["query"], "mode": mode})
+
     server_latencies: list[float] = []
     wall_latencies: list[float] = []
     for _ in range(reps):
         for q in golden:
             t0 = time.perf_counter()
-            r = httpx.get(f"{URL}/search", params={"q": q["query"], "mode": mode})
+            r = client.get("/search", params={"q": q["query"], "mode": mode})
             wall_latencies.append((time.perf_counter() - t0) * 1000)
             server_latencies.append(r.json()["latency_ms"])
     return {
@@ -132,6 +156,7 @@ else:
 # ## 5. Cleanup — stop the API server
 
 # %%
+client.close()
 proc.terminate()
 proc.wait(timeout=5)
 print("API server stopped")

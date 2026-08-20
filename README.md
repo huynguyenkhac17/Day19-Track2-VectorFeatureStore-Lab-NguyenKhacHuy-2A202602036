@@ -249,7 +249,7 @@ học viên cũng được. Full brief + self-checklist:
 | `make api` → port 8000 in use | `lsof -ti:8000 \| xargs kill -9` hoặc đổi `--port 8001` |
 | NB1 báo `expected 1000 indexed, got X` | Chưa `make seed`; chạy lại |
 | NB2 hybrid không thắng | Check RRF công thức: `1/(k + rank)` **rank 1-based**, không phải 0-based |
-| NB3 P99 > 50ms | Bình thường ở cold start. Chạy 10 query warmup trước rồi đo lại. |
+| NB3 P99 > 50ms | Chạy `make fix-model`. fastembed >= 0.8 phát hành `bge-small-en-v1.5` dạng **float16**; CPU provider của ONNX Runtime không có kernel fp16 nên cast lại 33M trọng số ở **mỗi** lần embed (~30 ms cố định/lời gọi). Convert sang fp32 một lần: 62 ms → 3,1 ms mỗi query, vector không đổi. `setup-lite.sh` tự chạy bước này. |
 | NB4 `feast apply` lỗi | Xoá `app/feast_repo/registry.db` và chạy lại |
 | Docker path: `port 6333 already allocated` | `docker compose down` rồi `docker compose up -d` |
 | Docker path: Qdrant timeout | Đợi 60s sau `docker compose up`; image lần đầu pull ~200MB |

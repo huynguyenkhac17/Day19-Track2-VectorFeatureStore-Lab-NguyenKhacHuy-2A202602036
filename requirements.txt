@@ -28,6 +28,12 @@ pydantic>=2.9,<3.0
 polars>=1.13.2,<2.0                    # 1.13.1 was yanked
 pyarrow>=17,<26                         # <22 had no cp314 wheel -> source build failed on Py3.14
 
+# CPU inference fix (scripts/fix_fp16_model.py)
+# fastembed >= 0.8 ships bge-small-en-v1.5 as float16; ORT's CPU provider has no
+# fp16 kernels and re-casts all 33M weights on EVERY call (~30 ms/embed). onnx
+# lets setup convert the cached model to fp32 once -- same vectors, 20x faster.
+onnx>=1.16,<2.0
+
 # Notebook
 jupyterlab>=4.3,<5.0
 jupytext>=1.16,<2.0
